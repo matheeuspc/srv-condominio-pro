@@ -7,8 +7,12 @@ import com.mcardoso.srvcondominiopro.modules.areas.dto.HorarioDisponivelResponse
 import com.mcardoso.srvcondominiopro.modules.areas.dto.UpdateAreaRequest;
 import com.mcardoso.srvcondominiopro.modules.condominios.Condominio;
 import com.mcardoso.srvcondominiopro.modules.condominios.CondominioRepository;
+import com.mcardoso.srvcondominiopro.modules.reservas.Reserva;
+import com.mcardoso.srvcondominiopro.modules.reservas.ReservaRepository;
+import com.mcardoso.srvcondominiopro.modules.reservas.StatusReserva;
 import com.mcardoso.srvcondominiopro.modules.usuarios.Usuario;
 import com.mcardoso.srvcondominiopro.shared.exceptions.AppException;
+import com.mcardoso.srvcondominiopro.shared.exceptions.ConflictException;
 import com.mcardoso.srvcondominiopro.shared.exceptions.ForbiddenException;
 import com.mcardoso.srvcondominiopro.shared.exceptions.NotFoundException;
 import org.springframework.http.HttpStatus;
@@ -25,12 +29,21 @@ import java.util.List;
 @Service
 public class AreaComumService {
 
+    private static final List<StatusReserva> RESERVAS_ATIVAS =
+            List.of(StatusReserva.PENDENTE, StatusReserva.CONFIRMADA);
+
     private final AreaComumRepository areaComumRepository;
     private final CondominioRepository condominioRepository;
+    private final ReservaRepository reservaRepository;
 
-    public AreaComumService(AreaComumRepository areaComumRepository, CondominioRepository condominioRepository) {
+    public AreaComumService(
+            AreaComumRepository areaComumRepository,
+            CondominioRepository condominioRepository,
+            ReservaRepository reservaRepository
+    ) {
         this.areaComumRepository = areaComumRepository;
         this.condominioRepository = condominioRepository;
+        this.reservaRepository = reservaRepository;
     }
 
     public List<AreaResponse> listar(Long condominioId, Usuario usuarioLogado) {
@@ -97,7 +110,9 @@ public class AreaComumService {
     public void deletar(Long id, Usuario usuarioLogado) {
         AreaComum area = buscarPorId(id);
         validarAcessoCondominio(area.getCondominio().getId(), usuarioLogado);
-        // Bloquear exclusão com reservas ativas fica para o módulo de Reservas (ainda não existe).
+        if (reservaRepository.existsByAreaIdAndStatusIn(id, RESERVAS_ATIVAS)) {
+            throw new ConflictException("Não é possível excluir uma área com reservas ativas");
+        }
         areaComumRepository.delete(area);
     }
 
@@ -108,13 +123,18 @@ public class AreaComumService {
         LocalTime inicio = LocalTime.parse(area.getHorarioInicio());
         LocalTime fim = LocalTime.parse(area.getHorarioFim());
 
-        // Gera blocos de 1h dentro do horário de funcionamento da área. Ainda não descarta
-        // horários já reservados, pois o módulo de Reservas (que guarda essa informação) não existe.
+        List<Reserva> reservasDoDia = reservaRepository.findByAreaIdAndDataAndStatusIn(
+                area.getId(), data, RESERVAS_ATIVAS);
+
+        // Gera blocos de 1h dentro do horário de funcionamento da área, descartando os que
+        // colidem com uma reserva PENDENTE ou CONFIRMADA para a mesma data.
         List<HorarioDisponivelResponse> horarios = new ArrayList<>();
         LocalTime cursor = inicio;
         while (cursor.plusHours(1).compareTo(fim) <= 0) {
             LocalTime proximo = cursor.plusHours(1);
-            horarios.add(new HorarioDisponivelResponse(cursor.toString(), proximo.toString()));
+            if (!blocoReservado(cursor, proximo, reservasDoDia)) {
+                horarios.add(new HorarioDisponivelResponse(cursor.toString(), proximo.toString()));
+            }
             cursor = proximo;
         }
 
@@ -124,6 +144,17 @@ public class AreaComumService {
     private AreaComum buscarPorId(Long id) {
         return areaComumRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Área comum não encontrada"));
+    }
+
+    private static boolean blocoReservado(LocalTime inicio, LocalTime fim, List<Reserva> reservas) {
+        for (Reserva reserva : reservas) {
+            LocalTime rInicio = LocalTime.parse(reserva.getHoraInicio());
+            LocalTime rFim = LocalTime.parse(reserva.getHoraFim());
+            if (inicio.isBefore(rFim) && rInicio.isBefore(fim)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void validarHorarios(String horarioInicio, String horarioFim) {

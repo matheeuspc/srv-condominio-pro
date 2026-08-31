@@ -12,5 +12,7 @@ public interface MoradorUnidadeRepository extends JpaRepository<MoradorUnidade, 
 
     boolean existsByUsuarioIdAndUnidadeId(Long usuarioId, Long unidadeId);
 
+    boolean existsByUsuarioIdAndUnidadeIdAndStatus(Long usuarioId, Long unidadeId, StatusMorador status);
+
     boolean existsByUnidadeIdAndStatus(Long unidadeId, StatusMorador status);
 }
