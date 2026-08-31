@@ -1,8 +1,9 @@
 # Progresso do Backend — CondomínioPro
 
-Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-08-30.
+Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-08-31.
 
-> Fases 1–2 concluídas. Fases 3 (Comunicação) e 4 (Extras) implementadas em código — ver seções próprias abaixo.
+> Fases 1–4 implementadas. Pós-roadmap: bloco de Auth do CONTEXT §6.1 completo e schema
+> migrado para **Flyway** — ver "Pós-roadmap" abaixo.
 
 ## Fase 1 — Base ✅ concluída
 
@@ -18,7 +19,7 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 
 ### O que ficou fora do escopo da Fase 1 (deliberadamente)
 
-- **Auth**: `forgot-password`, `reset-password`, `refresh-token` (listados na seção 6.1 do CONTEXT.md, mas não fazem parte da Fase 1 do roadmap).
+- **Auth**: ~~`forgot-password`, `reset-password`, `refresh-token`~~ → implementados no pós-roadmap (ver seção própria).
 - **Moradores**: ~~envio de convite por email ainda não existe~~ → Fase 3: `MoradorService.criar` agora dispara `notificacaoService.notificar(...)` com o token (best-effort). O `tokenConvite` continua na resposta como fallback quando nenhum canal está configurado.
 
 ## Fase 2 — Core do produto ✅
@@ -142,12 +143,41 @@ Todos **SINDICO**, sob `/api/v1/condominios/:condominioId/relatorios/*` — já 
 
 ---
 
+## Pós-roadmap
+
+### Auth §6.1 — completo
+
+`AuthController` agora tem os 3 endpoints públicos que faltavam:
+
+- `POST /auth/forgot-password` `{ email }` → **sempre 200** com mensagem neutra (não revela se o email existe). Se o usuário existe e está ativo, grava `token_reset_senha` + `token_reset_expiracao` (**1 hora**) e dispara `notificacaoService.notificar(...)` com o token (best-effort, mesmo padrão do convite).
+- `POST /auth/reset-password` `{ token, senha }` (`senha` min. 8) → valida token não expirado + usuário ativo, troca a senha (BCrypt), limpa os campos de reset e **já devolve um `AuthResponse`** (JWT novo), igual ao aceite de convite. Token inválido/expirado → 400.
+- `POST /auth/refresh-token` `{ token }` → renova um JWT **ainda válido** (sessão deslizante) e devolve `AuthResponse`. Token inválido/expirado ou usuário inativo → 401.
+
+**Decisões**: campos de reset **separados** do `token_convite` (não colidem com convite pendente); reset e refresh reaproveitam o fluxo "devolve JWT" já existente; `AuthService` passou a depender de `NotificacaoService` (sem ciclo). **Limitação**: não há refresh token de verdade — um JWT já expirado exige `login`. Teste novo: `AuthTokenExpiracaoTest` (unit puro de `AuthService.tokenValido`).
+
+### Migrations — Flyway
+
+Schema saiu de `ddl-auto=update` + `schema.sql` para **Flyway** (`flyway-core` + `flyway-database-postgresql`, versões pelo BOM do Spring Boot). Migrations em `src/main/resources/db/migration/`:
+
+- `V1__baseline_schema.sql` — schema completo das Fases 1-4 (tipos espelhando as anotações JPA). É o ponto de partida para **banco vazio** (CI / ambiente novo).
+- `V2__auth_token_reset_senha.sql` — as 2 colunas de reset em `usuarios` + constraint unique.
+
+**Config** (`application.yaml` de produção):
+- `spring.flyway.baseline-on-migrate: true`, `baseline-version: 1` → a instância Supabase (que já tem as tabelas via `ddl-auto`) é **carimbada como V1 sem rodar o V1**; o Flyway aplica só da **V2 em diante**.
+- `spring.jpa.hibernate.ddl-auto: none` (era `update`) — Flyway é a fonte da verdade; `none` (em vez de `validate`) evita quebra de boot por drift entre o V1 escrito à mão e o que o `ddl-auto` criou incrementalmente no Supabase. **Promover a `validate` depois de confirmar o V1 contra o banco real.**
+- `spring.sql.init.mode: never` (era `always`) — `schema.sql` **aposentado** (arquivo mantido no repo só como histórico).
+- Perfil de teste (`src/test/resources/application.yaml`): `spring.flyway.enabled: false` + `ddl-auto: create-drop` — o `contextLoads` continua montando o schema pelo Hibernate no H2 (as migrations são PostgreSQL puro).
+
+**Não verificado contra Postgres real** — `mvn test` (25, H2, Flyway off) passa, mas o primeiro boot contra o Supabase precisa ser acompanhado: é quando o Flyway cria o `flyway_schema_history`, carimba o baseline e roda a V2. Se a V2 falhar (ex.: coluna já criada por um boot anterior com `ddl-auto`), remover o `ADD COLUMN` correspondente da V2 e usar `flyway repair` / marcar como aplicada.
+
+---
+
 ## Notas de infraestrutura
 
 - **Banco**: Postgres gerenciado pelo Supabase (não é um banco local/efêmero — é a instância real do projeto).
-- **`schema.sql`** (`src/main/resources/schema.sql`, roda em todo boot via `spring.sql.init.mode: always`): script idempotente que alinha tabelas que já existiam no Supabase (de uma tentativa anterior, com colunas em camelCase) ao schema snake_case que as entidades JPA esperam. `ddl-auto=update` cuida de tabelas/colunas genuinamente novas.
+- **Schema**: gerido por **Flyway** (`src/main/resources/db/migration/`, ver "Pós-roadmap"). `ddl-auto: none`. O `schema.sql` legado (patch camelCase→snake_case da instância Supabase) está **aposentado** — arquivo mantido só como histórico, não roda mais (`spring.sql.init.mode: never`).
 - **Credenciais**: `application.yaml` só tem defaults seguros (placeholders locais); as credenciais reais do Supabase ficam em `src/main/resources/application-local.yaml`, que está no `.gitignore` — rodar com `--spring-boot.run.profiles=local` (ou `SPRING_PROFILES_ACTIVE=local`) localmente.
-- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem tocar no Supabase nem no `schema.sql`); unit puro: `ReservaServiceOverlapTest` (sobreposição de horários), `AvisoSegmentacaoTest` (visibilidade de aviso por papel), `NotificacaoCanaisTest` (resolução de canais preferência × config × dados), `WhatsappSenderE164Test` (normalização de telefone), `RelatorioPeriodoTest` (janela default / validação de período). 22 testes no total. O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
+- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem Supabase, sem `schema.sql`, sem Flyway); unit puro: `ReservaServiceOverlapTest` (sobreposição de horários), `AvisoSegmentacaoTest` (visibilidade de aviso por papel), `NotificacaoCanaisTest` (resolução de canais), `WhatsappSenderE164Test` (normalização de telefone), `RelatorioPeriodoTest` (janela de período), `AuthTokenExpiracaoTest` (expiração de token). **25 testes** no total. O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
 - **Dado legado preservado**: existe um condomínio real "Residencial das Flores" (id=1) com 2 unidades, que já estava no banco antes deste trabalho começar — foi preservado ao corrigir o `schema.sql`, mas perdeu metadados de baixo valor (created_at/updated_at originais, preferências de notificação) durante uma correção de schema anterior a eu saber que era dado real.
 - **Dados de teste**: condomínio "Condomínio Teste Auth ATUALIZADO" (id=3) e usuários/moradores/áreas/unidades associados foram criados durante os testes manuais e continuam no banco — ainda não foram limpos.
 
@@ -158,7 +188,7 @@ com.mcardoso.srvcondominiopro/
 ├── config/
 │   └── SecurityConfig.java
 ├── modules/
-│   ├── auth/            (AuthController, AuthService, dto/)
+│   ├── auth/            (AuthController, AuthService, dto/ = register/login/me + forgot/reset/refresh)
 │   ├── condominios/      (Condominio, CondominioRepository, CondominioController, CondominioService, dto/)
 │   ├── usuarios/          (Usuario, Role, UsuarioRepository)
 │   ├── unidades/          (Unidade, UnidadeRepository, UnidadeController, UnidadeService, dto/)
@@ -177,7 +207,8 @@ com.mcardoso.srvcondominiopro/
 │   │                       canais/ = EmailSender (Resend), WhatsappSender (Twilio),
 │   │                                 ResendProperties, TwilioProperties, NotificacaoCanaisConfig)
 │   └── relatorios/        (RelatorioController, RelatorioService, dto/) — só agrega, sem entidade
-└── shared/
-    ├── exceptions/        (AppException, NotFoundException, ConflictException, ForbiddenException, GlobalExceptionHandler)
-    └── security/          (JwtService, JwtFilter)
+├── shared/
+│   ├── exceptions/        (AppException, NotFoundException, ConflictException, ForbiddenException, GlobalExceptionHandler)
+│   └── security/          (JwtService, JwtFilter)
+└── resources/db/migration/  (V1__baseline_schema.sql, V2__auth_token_reset_senha.sql)
 ```

@@ -7,10 +7,23 @@ spring:
     password: ${DATABASE_PASSWORD:postgres}
   sql:
     init:
-      mode: always
+      # schema.sql (patch camelCase->snake_case da instância Supabase legada) foi aposentado:
+      # o schema agora é do Flyway. O arquivo continua no repo só como histórico.
+      mode: never
+  flyway:
+    enabled: true
+    # A instância Supabase já tem as tabelas das Fases 1-4 (criadas por ddl-auto=update).
+    # baseline-on-migrate carimba essa base como V1 sem rodá-la e aplica só de V2 em diante.
+    # Num banco vazio (CI / ambiente novo) o Flyway roda V1 + V2 + ...
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "baseline Fases 1-4"
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway é a fonte da verdade do schema. `none` = Hibernate não mexe nem valida
+      # (evita quebra por drift entre o V1 escrito à mão e o que ddl-auto criou no Supabase).
+      # Depois de confirmar o V1 contra o banco real, dá para promover a `validate`.
+      ddl-auto: none
     show-sql: true
     properties:
       hibernate:

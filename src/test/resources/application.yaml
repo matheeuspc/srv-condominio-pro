@@ -1,6 +1,6 @@
 # Config exclusiva dos testes (shadowa src/main/resources/application.yaml no classpath de teste).
-# Smoke test offline: H2 em memória, schema gerado pelo Hibernate, sem tocar no Supabase
-# nem no schema.sql (que é um patch idempotente específico da instância real do Postgres).
+# Smoke test offline: H2 em memória, schema gerado pelo Hibernate, sem tocar no Supabase,
+# sem schema.sql e sem Flyway (as migrations são PostgreSQL puro).
 spring:
   datasource:
     url: jdbc:h2:mem:condominio;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
@@ -10,6 +10,8 @@ spring:
   sql:
     init:
       mode: never
+  flyway:
+    enabled: false
   jpa:
     hibernate:
       ddl-auto: create-drop
