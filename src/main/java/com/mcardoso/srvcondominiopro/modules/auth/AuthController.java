@@ -1,8 +1,12 @@
 package com.mcardoso.srvcondominiopro.modules.auth;
 
 import com.mcardoso.srvcondominiopro.modules.auth.dto.AuthResponse;
+import com.mcardoso.srvcondominiopro.modules.auth.dto.ForgotPasswordRequest;
 import com.mcardoso.srvcondominiopro.modules.auth.dto.LoginRequest;
+import com.mcardoso.srvcondominiopro.modules.auth.dto.MessageResponse;
+import com.mcardoso.srvcondominiopro.modules.auth.dto.RefreshTokenRequest;
 import com.mcardoso.srvcondominiopro.modules.auth.dto.RegisterRequest;
+import com.mcardoso.srvcondominiopro.modules.auth.dto.ResetPasswordRequest;
 import com.mcardoso.srvcondominiopro.modules.auth.dto.UsuarioResponse;
 import com.mcardoso.srvcondominiopro.modules.usuarios.Usuario;
 import jakarta.validation.Valid;
@@ -39,5 +43,20 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UsuarioResponse> me(@AuthenticationPrincipal Usuario usuarioLogado) {
         return ResponseEntity.ok(authService.me(usuarioLogado));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return ResponseEntity.ok(authService.forgotPassword(request));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<AuthResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        return ResponseEntity.ok(authService.resetPassword(request));
+    }
+
+    @PostMapping("/refresh-token")
+    public ResponseEntity<AuthResponse> refreshToken(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refreshToken(request));
     }
 }

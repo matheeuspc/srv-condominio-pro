@@ -14,6 +14,8 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
 
     Optional<Usuario> findByTokenConvite(String tokenConvite);
 
+    Optional<Usuario> findByTokenResetSenha(String tokenResetSenha);
+
     long countByCondominioIdAndAtivoTrue(Long condominioId);
 
     long countByCondominioIdAndAtivoTrueAndRoleIn(Long condominioId, Collection<Role> roles);

@@ -55,6 +55,12 @@ public class Usuario {
     @Column(name = "token_expiracao")
     private LocalDateTime tokenExpiracao;
 
+    @Column(name = "token_reset_senha", unique = true)
+    private String tokenResetSenha;
+
+    @Column(name = "token_reset_expiracao")
+    private LocalDateTime tokenResetExpiracao;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "condominio_id", nullable = false)
     private Condominio condominio;

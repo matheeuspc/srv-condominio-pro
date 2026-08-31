@@ -32,7 +32,10 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(
+                                "/api/v1/auth/register", "/api/v1/auth/login",
+                                "/api/v1/auth/forgot-password", "/api/v1/auth/reset-password",
+                                "/api/v1/auth/refresh-token").permitAll()
                         .requestMatchers("/api/v1/moradores/convite/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/pagamentos/webhook/**").permitAll()
                         .requestMatchers("/api/v1/moradores/me", "/api/v1/moradores/me/reservas",
