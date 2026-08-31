@@ -34,9 +34,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers("/api/v1/moradores/convite/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/pagamentos/webhook/**").permitAll()
                         .requestMatchers("/api/v1/moradores/me", "/api/v1/moradores/me/reservas")
                             .hasAnyRole("PROPRIETARIO", "INQUILINO")
                         .requestMatchers(HttpMethod.POST, "/api/v1/reservas", "/api/v1/reservas/validar")
+                            .hasAnyRole("PROPRIETARIO", "INQUILINO")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/pagamentos/criar-cobranca")
                             .hasAnyRole("PROPRIETARIO", "INQUILINO")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/reservas/*/aprovar", "/api/v1/reservas/*/rejeitar")
                             .hasRole("SINDICO")
@@ -47,6 +50,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/moradores/**").hasRole("SINDICO")
                         .requestMatchers("/api/v1/areas/**").hasRole("SINDICO")
                         .requestMatchers("/api/v1/reservas/**").authenticated()
+                        .requestMatchers("/api/v1/pagamentos/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

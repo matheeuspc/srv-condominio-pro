@@ -20,3 +20,11 @@ app:
   jwt:
     secret: ${JWT_SECRET:change-this-secret-change-this-secret-change-this-secret}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  mercadopago:
+    # Credenciais reais ficam em application-local.yaml (gitignored). Sem access-token a
+    # integração fica desligada: criar-cobranca responde 503 e o webhook só é logado.
+    access-token: ${MERCADO_PAGO_ACCESS_TOKEN:}
+    webhook-secret: ${MERCADO_PAGO_WEBHOOK_SECRET:}
+    base-url: ${MERCADO_PAGO_BASE_URL:https://api.mercadopago.com}
+    notification-url: ${MERCADO_PAGO_NOTIFICATION_URL:}
+    pix-expiration-minutes: ${MERCADO_PAGO_PIX_EXPIRATION_MINUTES:30}

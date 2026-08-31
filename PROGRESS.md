@@ -25,7 +25,7 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 |---|------|--------|
 | 6 | AreasController | ✅ |
 | 7 | ReservasController | ✅ |
-| 8 | PagamentosController (Mercado Pago + webhook) | ⬜ próximo |
+| 8 | PagamentosController (Mercado Pago + webhook) | ✅ (código; falta teste com credencial real de sandbox) |
 
 ### AreasController — limitações resolvidas pelo módulo de Reservas
 
@@ -46,10 +46,26 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 
 ### Limitações conhecidas do ReservasController (dependem do módulo de Pagamentos)
 
-- Reserva com taxa nasce `PENDENTE` e **não há como confirmá-la** ainda (a confirmação virá do webhook do Mercado Pago). Hoje só um `PUT /reservas/:id/aprovar` do síndico a move para `CONFIRMADA`.
-- Não há geração de QR Code Pix nem endpoint de pagamento.
+- ~~Reserva com taxa nasce `PENDENTE` e não há como confirmá-la~~ → resolvido: `POST /pagamentos/webhook/mercadopago` move a reserva `PENDENTE` para `CONFIRMADA` quando o pagamento é aprovado.
+- ~~Não há geração de QR Code Pix nem endpoint de pagamento~~ → resolvido: `POST /pagamentos/criar-cobranca`.
 - Sem envio de notificação em reserva confirmada/cancelada (Fase 3).
 - `tabela reservas` é nova — criada pelo Hibernate (`ddl-auto=update`), não há entrada no `schema.sql`.
+
+### PagamentosController — regras implementadas (CONTEXT 5.2 / 6.7)
+
+- `POST /pagamentos/criar-cobranca` (MORADOR, dono da reserva): exige reserva `PENDENTE` com `area.taxa > 0`; chama o Mercado Pago (`POST /v1/payments`, `payment_method_id: pix`) e persiste `Pagamento` com QR Code / `ticket_url`. Idempotente: se já existe cobrança `AGUARDANDO` com QR, devolve a mesma sem gerar outra; `PAGO` → 409.
+- `GET /pagamentos/:id/status` e `GET /reservas/:reservaId/pagamento` (autenticado): dono da reserva ou síndico do condomínio.
+- `GET /condominios/:condominioId/pagamentos` (SINDICO): relatório com `totalRecebido` (PAGO), `totalAguardando`, contagem e lista.
+- `POST /pagamentos/webhook/mercadopago` (**público**, fora do JWT): valida `x-signature` (HMAC-SHA256 do manifesto `id;request-id;ts`); consulta o pagamento no MP (`GET /v1/payments/:id`) e mapeia status → `AGUARDANDO`/`PAGO`/`FALHOU`/`ESTORNADO`. `approved` → `Pagamento.PAGO` + `paidAt` + reserva `PENDENTE`→`CONFIRMADA`. Sempre responde 200 (exceto assinatura inválida → 403) para o MP não reenviar.
+- Tabela `pagamentos` é nova — criada pelo Hibernate (`ddl-auto=update`), sem entrada no `schema.sql` (mesmo caso de `reservas`). Relação 1:1 com `reservas` (`reserva_id` UNIQUE).
+
+### Config e limitações conhecidas do PagamentosController
+
+- Config em `app.mercadopago.*` (`access-token`, `webhook-secret`, `base-url`, `notification-url`, `pix-expiration-minutes`). Sem `access-token`: `criar-cobranca` → 503 e webhook apenas logado. Sem `webhook-secret`: assinatura **não** é validada (só um `warn`). Credenciais reais vão em `application-local.yaml` (gitignored).
+- Integração **ainda não testada contra o sandbox real do Mercado Pago** — falta `access-token` de teste. Só compila + `contextLoads` (H2) passam.
+- Webhook `FALHOU`/`ESTORNADO` só atualiza o `Pagamento`; **não** cancela a reserva nem libera o horário (fica a cargo do síndico).
+- Sem `refund`/estorno ativo (só reflete o que vier do MP) e sem notificação de pagamento confirmado (Fase 3).
+- Sem taxa da plataforma (2,5% + gateway do CONTEXT 2) — cobra-se apenas `area.taxa` cheia.
 
 ## Fase 3 — Comunicação (não iniciada)
 
@@ -85,7 +101,10 @@ com.mcardoso.srvcondominiopro/
 │   ├── unidades/          (Unidade, UnidadeRepository, UnidadeController, UnidadeService, dto/)
 │   ├── moradores/         (MoradorUnidade, StatusMorador, MoradorUnidadeRepository, MoradorController, MoradorService, dto/)
 │   ├── areas/             (AreaComum, AreaComumRepository, AreaComumController, AreaComumService, dto/)
-│   └── reservas/          (Reserva, StatusReserva, ReservaRepository, ReservaController, ReservaService, dto/)
+│   ├── reservas/          (Reserva, StatusReserva, ReservaRepository, ReservaController, ReservaService, dto/)
+│   └── pagamentos/        (Pagamento, StatusPagamento, PagamentoRepository, PagamentoController, PagamentoService, dto/,
+│                           mercadopago/ = MercadoPagoClient, MercadoPagoProperties, MercadoPagoConfig,
+│                                          MercadoPagoWebhookValidator, MercadoPagoPayment, PagamentoPixRequest)
 └── shared/
     ├── exceptions/        (AppException, NotFoundException, ConflictException, ForbiddenException, GlobalExceptionHandler)
     └── security/          (JwtService, JwtFilter)
