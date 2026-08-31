@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: srv-condominio-pro
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/condominio_pro}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+  sql:
+    init:
+      mode: always
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-change-this-secret-change-this-secret}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
