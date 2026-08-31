@@ -1,0 +1,23 @@
+# Config exclusiva dos testes (shadowa src/main/resources/application.yaml no classpath de teste).
+# Smoke test offline: H2 em memória, schema gerado pelo Hibernate, sem tocar no Supabase
+# nem no schema.sql (que é um patch idempotente específico da instância real do Postgres).
+spring:
+  datasource:
+    url: jdbc:h2:mem:condominio;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  sql:
+    init:
+      mode: never
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+
+app:
+  jwt:
+    secret: test-secret-test-secret-test-secret-test-secret-test-secret
+    expiration-ms: 86400000
