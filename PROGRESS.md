@@ -2,7 +2,7 @@
 
 Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-08-30.
 
-> Fases 1–2 concluídas. Fase 3 (Comunicação) implementada em código — ver seção própria abaixo.
+> Fases 1–2 concluídas. Fases 3 (Comunicação) e 4 (Extras) implementadas em código — ver seções próprias abaixo.
 
 ## Fase 1 — Base ✅ concluída
 
@@ -115,9 +115,30 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 - `POST /avisos/:id/marcar-lido` responde **204** (não devolve o aviso).
 - Sem preferências por evento (só por canal) e sem digest/agrupamento — cada morador do segmento recebe uma notificação por comunicado.
 
-## Fase 4 — Extras (não iniciada)
+## Fase 4 — Extras ✅ (código; falta teste manual contra Supabase)
 
-- RelatoriosController
+| # | Item | Status |
+|---|------|--------|
+| 12 | RelatoriosController | ✅ |
+
+### RelatoriosController — sem spec no CONTEXT.md (é "Extras"); endpoints definidos aqui
+
+Todos **SINDICO**, sob `/api/v1/condominios/:condominioId/relatorios/*` — já cobertos pelo matcher `/api/v1/condominios/**` do `SecurityConfig` (**sem alteração de segurança**). Não há tabela nem coluna nova: cada relatório **agrega em memória** as listas que os repositórios dos outros módulos já expõem.
+
+- `GET /relatorios/reservas?inicio=&fim=` — total, `porStatus` (todos os `StatusReserva`, zeros inclusos), `porMes` (`yyyy-MM` → contagem), `porArea` (todas as áreas do condomínio: total, confirmadas, `taxaArrecadada` = soma dos pagamentos `PAGO` das reservas da área no período).
+- `GET /relatorios/pagamentos?inicio=&fim=` — `porStatus` (`{quantidade, valor}` por `StatusPagamento`), `totalRecebido`, `ticketMedio` (recebido ÷ qtd paga, 2 casas), `porMes` (`{quantidade, recebido}`), `porArea` (`{pagos, recebido}`). Janela filtrada por `pagamento.created_at`.
+- `GET /relatorios/ocupacao` — snapshot **sem período**: unidades total/ocupadas/vazias (ocupada = tem vínculo `MoradorUnidade` `ATIVO`), moradores ativos por tipo, áreas total/ativas.
+- `GET /relatorios/comunicacao?inicio=&fim=` — `avisosPublicados` no período com `{elegiveis, leituras, taxaLeitura}` por aviso (elegíveis = moradores ativos do segmento), e `notificacoes` agregadas por `tipo`×`status` (só combinações com contagem > 0).
+
+**Parâmetros de período**: `inicio`/`fim` ISO (`yyyy-MM-dd`), **opcionais**. Default = primeiro dia de 12 meses atrás até hoje. Só `fim` → `inicio` recua 12 meses. `inicio > fim` → 400.
+
+### Limitações conhecidas do RelatoriosController
+
+- **Agrega em memória** (carrega todas as reservas/pagamentos/avisos/notificações do condomínio e filtra em Java, igual ao `PagamentoService.relatorio`). Para históricos muito grandes vale mover a agregação para o banco (`GROUP BY`).
+- Métodos anotados `@Transactional(readOnly = true)` — primeiro uso desse padrão no projeto; garante sessão aberta para a navegação lazy pesada entre entidades, sem depender do OSIV.
+- 2 métodos de repositório novos: `AvisoLeituraRepository.countByAvisoId`, `MoradorUnidadeRepository.findByUnidadeCondominioIdAndStatus`.
+- **Não testado contra o Supabase real** — só `mvn compile`, `contextLoads` (H2, valida os derived queries e o wiring) e `RelatorioPeriodoTest` (unit puro de `resolverPeriodo`/`chaveMes`).
+- `dashboard` do `CondominioController` (Fase 1, 2 contadores) e `GET /condominios/:id/pagamentos` (Fase 2, relatório financeiro simples) **continuam existindo** — não foram substituídos.
 
 ---
 
@@ -126,7 +147,7 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 - **Banco**: Postgres gerenciado pelo Supabase (não é um banco local/efêmero — é a instância real do projeto).
 - **`schema.sql`** (`src/main/resources/schema.sql`, roda em todo boot via `spring.sql.init.mode: always`): script idempotente que alinha tabelas que já existiam no Supabase (de uma tentativa anterior, com colunas em camelCase) ao schema snake_case que as entidades JPA esperam. `ddl-auto=update` cuida de tabelas/colunas genuinamente novas.
 - **Credenciais**: `application.yaml` só tem defaults seguros (placeholders locais); as credenciais reais do Supabase ficam em `src/main/resources/application-local.yaml`, que está no `.gitignore` — rodar com `--spring-boot.run.profiles=local` (ou `SPRING_PROFILES_ACTIVE=local`) localmente.
-- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem tocar no Supabase nem no `schema.sql`); unit puro: `ReservaServiceOverlapTest` (sobreposição de horários), `AvisoSegmentacaoTest` (visibilidade de aviso por papel), `NotificacaoCanaisTest` (resolução de canais preferência × config × dados), `WhatsappSenderE164Test` (normalização de telefone). O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
+- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem tocar no Supabase nem no `schema.sql`); unit puro: `ReservaServiceOverlapTest` (sobreposição de horários), `AvisoSegmentacaoTest` (visibilidade de aviso por papel), `NotificacaoCanaisTest` (resolução de canais preferência × config × dados), `WhatsappSenderE164Test` (normalização de telefone), `RelatorioPeriodoTest` (janela default / validação de período). 22 testes no total. O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
 - **Dado legado preservado**: existe um condomínio real "Residencial das Flores" (id=1) com 2 unidades, que já estava no banco antes deste trabalho começar — foi preservado ao corrigir o `schema.sql`, mas perdeu metadados de baixo valor (created_at/updated_at originais, preferências de notificação) durante uma correção de schema anterior a eu saber que era dado real.
 - **Dados de teste**: condomínio "Condomínio Teste Auth ATUALIZADO" (id=3) e usuários/moradores/áreas/unidades associados foram criados durante os testes manuais e continuam no banco — ainda não foram limpos.
 
@@ -150,11 +171,12 @@ com.mcardoso.srvcondominiopro/
 │   ├── avisos/            (Aviso, AvisoLeitura, AvisoRepository, AvisoLeituraRepository,
 │   │                       AvisoController, AvisoService, dto/)
 │   ├── faqs/              (Faq, CategoriaFaq, FaqRepository, FaqController, FaqService, dto/)
-│   └── notificacoes/      (Notificacao, PreferenciaNotificacao, TipoNotificacao, StatusNotificacao,
-│                           NotificacaoRepository, PreferenciaNotificacaoRepository,
-│                           NotificacaoController, NotificacaoService, dto/,
-│                           canais/ = EmailSender (Resend), WhatsappSender (Twilio),
-│                                     ResendProperties, TwilioProperties, NotificacaoCanaisConfig)
+│   ├── notificacoes/      (Notificacao, PreferenciaNotificacao, TipoNotificacao, StatusNotificacao,
+│   │                       NotificacaoRepository, PreferenciaNotificacaoRepository,
+│   │                       NotificacaoController, NotificacaoService, dto/,
+│   │                       canais/ = EmailSender (Resend), WhatsappSender (Twilio),
+│   │                                 ResendProperties, TwilioProperties, NotificacaoCanaisConfig)
+│   └── relatorios/        (RelatorioController, RelatorioService, dto/) — só agrega, sem entidade
 └── shared/
     ├── exceptions/        (AppException, NotFoundException, ConflictException, ForbiddenException, GlobalExceptionHandler)
     └── security/          (JwtService, JwtFilter)

@@ -10,6 +10,8 @@ public interface MoradorUnidadeRepository extends JpaRepository<MoradorUnidade, 
 
     List<MoradorUnidade> findByUsuarioIdAndStatus(Long usuarioId, StatusMorador status);
 
+    List<MoradorUnidade> findByUnidadeCondominioIdAndStatus(Long condominioId, StatusMorador status);
+
     boolean existsByUsuarioIdAndUnidadeId(Long usuarioId, Long unidadeId);
 
     boolean existsByUsuarioIdAndUnidadeIdAndStatus(Long usuarioId, Long unidadeId, StatusMorador status);

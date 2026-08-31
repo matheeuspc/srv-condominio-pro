@@ -10,6 +10,8 @@ public interface AvisoLeituraRepository extends JpaRepository<AvisoLeitura, Long
 
     boolean existsByAvisoIdAndUsuarioId(Long avisoId, Long usuarioId);
 
+    long countByAvisoId(Long avisoId);
+
     long deleteByAvisoId(Long avisoId);
 
     @Query("select l.aviso.id from AvisoLeitura l where l.usuarioId = :usuarioId")
