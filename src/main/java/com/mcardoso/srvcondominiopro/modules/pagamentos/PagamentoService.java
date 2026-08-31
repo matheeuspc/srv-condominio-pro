@@ -8,6 +8,7 @@ import com.mcardoso.srvcondominiopro.modules.pagamentos.mercadopago.MercadoPagoC
 import com.mcardoso.srvcondominiopro.modules.pagamentos.mercadopago.MercadoPagoPayment;
 import com.mcardoso.srvcondominiopro.modules.pagamentos.mercadopago.MercadoPagoWebhookValidator;
 import com.mcardoso.srvcondominiopro.modules.pagamentos.mercadopago.PagamentoPixRequest;
+import com.mcardoso.srvcondominiopro.modules.notificacoes.NotificacaoService;
 import com.mcardoso.srvcondominiopro.modules.reservas.Reserva;
 import com.mcardoso.srvcondominiopro.modules.reservas.ReservaRepository;
 import com.mcardoso.srvcondominiopro.modules.reservas.StatusReserva;
@@ -36,17 +37,20 @@ public class PagamentoService {
     private final ReservaRepository reservaRepository;
     private final MercadoPagoClient mercadoPagoClient;
     private final MercadoPagoWebhookValidator webhookValidator;
+    private final NotificacaoService notificacaoService;
 
     public PagamentoService(
             PagamentoRepository pagamentoRepository,
             ReservaRepository reservaRepository,
             MercadoPagoClient mercadoPagoClient,
-            MercadoPagoWebhookValidator webhookValidator
+            MercadoPagoWebhookValidator webhookValidator,
+            NotificacaoService notificacaoService
     ) {
         this.pagamentoRepository = pagamentoRepository;
         this.reservaRepository = reservaRepository;
         this.mercadoPagoClient = mercadoPagoClient;
         this.webhookValidator = webhookValidator;
+        this.notificacaoService = notificacaoService;
     }
 
     @Transactional
@@ -202,6 +206,12 @@ public class PagamentoService {
         if (reserva.getStatus() == StatusReserva.PENDENTE) {
             reserva.setStatus(StatusReserva.CONFIRMADA);
             reservaRepository.save(reserva);
+            notificacaoService.notificar(
+                    reserva.getUsuario(),
+                    "Reserva confirmada",
+                    "Pagamento aprovado. Sua reserva da área %s em %s (%s–%s) está confirmada.".formatted(
+                            reserva.getArea().getNome(), reserva.getData(),
+                            reserva.getHoraInicio(), reserva.getHoraFim()));
         }
     }
 

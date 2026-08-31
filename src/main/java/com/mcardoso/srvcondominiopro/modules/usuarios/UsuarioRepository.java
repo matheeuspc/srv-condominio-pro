@@ -19,4 +19,6 @@ public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
     long countByCondominioIdAndAtivoTrueAndRoleIn(Long condominioId, Collection<Role> roles);
 
     List<Usuario> findByCondominioIdAndRoleInOrderByNomeAsc(Long condominioId, Collection<Role> roles);
+
+    List<Usuario> findByCondominioIdAndAtivoTrueAndRoleInOrderByNomeAsc(Long condominioId, Collection<Role> roles);
 }

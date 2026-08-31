@@ -10,6 +10,7 @@ import com.mcardoso.srvcondominiopro.modules.moradores.dto.MoradorResponse;
 import com.mcardoso.srvcondominiopro.modules.moradores.dto.UpdateMoradorRequest;
 import com.mcardoso.srvcondominiopro.modules.moradores.dto.VincularUnidadeRequest;
 import com.mcardoso.srvcondominiopro.modules.moradores.dto.VinculoResponse;
+import com.mcardoso.srvcondominiopro.modules.notificacoes.NotificacaoService;
 import com.mcardoso.srvcondominiopro.modules.unidades.Unidade;
 import com.mcardoso.srvcondominiopro.modules.unidades.UnidadeRepository;
 import com.mcardoso.srvcondominiopro.modules.usuarios.Role;
@@ -40,6 +41,7 @@ public class MoradorService {
     private final CondominioRepository condominioRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final NotificacaoService notificacaoService;
 
     public MoradorService(
             UsuarioRepository usuarioRepository,
@@ -47,7 +49,8 @@ public class MoradorService {
             MoradorUnidadeRepository moradorUnidadeRepository,
             CondominioRepository condominioRepository,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService
+            JwtService jwtService,
+            NotificacaoService notificacaoService
     ) {
         this.usuarioRepository = usuarioRepository;
         this.unidadeRepository = unidadeRepository;
@@ -55,6 +58,7 @@ public class MoradorService {
         this.condominioRepository = condominioRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.notificacaoService = notificacaoService;
     }
 
     public List<MoradorResponse> listar(Long condominioId, Usuario usuarioLogado) {
@@ -90,8 +94,15 @@ public class MoradorService {
         morador.setTokenExpiracao(LocalDateTime.now().plusDays(TOKEN_CONVITE_DIAS_VALIDADE));
         usuarioRepository.save(morador);
 
-        // Envio do convite por email fica para o módulo de Notificações (Fase 3);
-        // por ora o token vai na resposta para o síndico repassar manualmente.
+        // Convite por notificação (best-effort). O token também segue na resposta como fallback
+        // caso nenhum canal esteja configurado.
+        notificacaoService.notificar(
+                morador,
+                "Convite para o " + condominio.getNome(),
+                ("Você foi cadastrado no %s. Use o token de convite abaixo para definir sua senha "
+                        + "(válido por %d dias):%n%n%s")
+                        .formatted(condominio.getNome(), TOKEN_CONVITE_DIAS_VALIDADE, morador.getTokenConvite()));
+
         return toResponse(morador);
     }
 

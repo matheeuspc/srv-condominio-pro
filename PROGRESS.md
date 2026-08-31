@@ -2,6 +2,8 @@
 
 Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-08-30.
 
+> Fases 1–2 concluídas. Fase 3 (Comunicação) implementada em código — ver seção própria abaixo.
+
 ## Fase 1 — Base ✅ concluída
 
 | # | Item | Status |
@@ -17,9 +19,9 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 ### O que ficou fora do escopo da Fase 1 (deliberadamente)
 
 - **Auth**: `forgot-password`, `reset-password`, `refresh-token` (listados na seção 6.1 do CONTEXT.md, mas não fazem parte da Fase 1 do roadmap).
-- **Moradores**: envio de convite por **email** ainda não existe — depende do módulo de Notificações (Fase 3). Por enquanto o `tokenConvite` volta na resposta do `POST /moradores` para o síndico repassar manualmente.
+- **Moradores**: ~~envio de convite por email ainda não existe~~ → Fase 3: `MoradorService.criar` agora dispara `notificacaoService.notificar(...)` com o token (best-effort). O `tokenConvite` continua na resposta como fallback quando nenhum canal está configurado.
 
-## Fase 2 — Core do produto (em andamento)
+## Fase 2 — Core do produto ✅
 
 | # | Item | Status |
 |---|------|--------|
@@ -64,14 +66,54 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 - Config em `app.mercadopago.*` (`access-token`, `webhook-secret`, `base-url`, `notification-url`, `pix-expiration-minutes`). Sem `access-token`: `criar-cobranca` → 503 e webhook apenas logado. Sem `webhook-secret`: assinatura **não** é validada (só um `warn`). Credenciais reais vão em `application-local.yaml` (gitignored).
 - Integração **ainda não testada contra o sandbox real do Mercado Pago** — falta `access-token` de teste. Só compila + `contextLoads` (H2) passam.
 - Webhook `FALHOU`/`ESTORNADO` só atualiza o `Pagamento`; **não** cancela a reserva nem libera o horário (fica a cargo do síndico).
-- Sem `refund`/estorno ativo (só reflete o que vier do MP) e sem notificação de pagamento confirmado (Fase 3).
+- Sem `refund`/estorno ativo (só reflete o que vier do MP).
+- ~~sem notificação de pagamento confirmado~~ → Fase 3: `confirmarReserva` dispara notificação ao morador.
 - Sem taxa da plataforma (2,5% + gateway do CONTEXT 2) — cobra-se apenas `area.taxa` cheia.
 
-## Fase 3 — Comunicação (não iniciada)
+## Fase 3 — Comunicação ✅ (código; falta teste manual com provedores reais)
 
-- AvisosController
-- FAQsController
-- NotificacoesController (email + WhatsApp)
+| # | Item | Status |
+|---|------|--------|
+| 9 | AvisosController | ✅ |
+| 10 | FAQsController | ✅ |
+| 11 | NotificacoesController (email + WhatsApp) | ✅ |
+
+### AvisosController — regras implementadas (CONTEXT 5.3 / 6.8)
+
+- Tabelas novas `avisos` e `aviso_leituras` — criadas pelo Hibernate (`ddl-auto=update`), sem entrada no `schema.sql` (mesmo critério de `reservas`/`pagamentos`).
+- `POST /condominios/:id/avisos` (SINDICO): `destinatario` = `null` (todos), `PROPRIETARIO` ou `INQUILINO` (`SINDICO` → 400). Se `publicado`, dispara notificação "Novo comunicado" aos moradores **ativos** do segmento.
+- `GET /condominios/:id/avisos`: SINDICO vê todos; morador vê só `publicado = true` e do seu segmento, cada item com flag `lido`.
+- `GET /avisos/:id`: mesma visibilidade (morador sem acesso → 404, não 403, para não vazar existência).
+- `PUT`/`DELETE /avisos/:id` (SINDICO). `DELETE` remove as `aviso_leituras` antes (sem FK órfã) e responde 204.
+- `POST /avisos/:id/marcar-lido` (MORADOR): idempotente (204 mesmo se já lido).
+- `GET /avisos/nao-lidos` (MORADOR): visíveis ao morador e ainda não lidos.
+
+### FAQsController — regras implementadas (CONTEXT 5.4 / 6.9)
+
+- Tabela nova `faqs` — Hibernate, sem `schema.sql`.
+- `GET /condominios/:id/faqs` (autenticado): morador vê só `ativa = true`; SINDICO vê todas. Ordena por `ordem`, depois `id`. Filtro opcional `?categoria=` (extra, não estava no CONTEXT).
+- `GET /condominios/:id/faqs/search?q=` (autenticado): `LIKE` case-insensitive em pergunta **ou** resposta; morador só recebe as ativas. `q` vazio → 400.
+- `POST`/`PUT`/`DELETE` (SINDICO). `DELETE` é físico (o flag `ativa` é para ocultar sem apagar).
+
+### NotificacoesController — regras implementadas (CONTEXT 5.5 / 6.10)
+
+- Tabela `notificacoes` (CONTEXT 7) + `preferencias_notificacao` (nova, uma linha por morador) — ambas via Hibernate, sem `schema.sql`.
+- `GET`/`PUT /moradores/me/preferencias-notificacoes` (MORADOR): upsert de `notificarEmail` (default `true`) e `notificarWhatsapp` (default `false`). Sem linha → devolve os defaults sem persistir.
+- `GET /condominios/:id/notificacoes/log` (SINDICO): log de envios, mais recentes primeiro; filtros opcionais `?tipo=` e `?status=`.
+- `POST /notificacoes/enviar` (SINDICO): alvo = `usuarioIds` (têm de ser do condomínio) **ou** `destinatario` (papel) **ou** todos os moradores ativos; `tipo` nulo segue a preferência de cada um. Sem canal configurado → 503. Responde `{ destinatarios, enviados, falhas }`.
+- **Canais** (`NotificacaoService`): EMAIL via Resend (`POST /emails`), WHATSAPP via Twilio (`POST /Accounts/{sid}/Messages.json`, auth Basic). Cada envio grava uma `Notificacao` (`PENDENTE` → `ENVIADO`+`enviado_em` / `FALHOU`+`erro`).
+- **Resolução de canais**: EMAIL sai se `pref.email` **e** Resend configurado. WHATSAPP sai se `pref.whatsapp` **e** `condominio.notifica_whatsapp` **e** Twilio configurado **e** o morador tem telefone.
+- **Eventos que disparam notificação** (best-effort, nunca derrubam a transação de origem): novo comunicado publicado, reserva confirmada/cancelada/rejeitada (`ReservaService`), reserva confirmada por pagamento (`PagamentoService`), convite de morador (`MoradorService`).
+
+### Config e limitações conhecidas da Fase 3
+
+- Config em `app.resend.*` (`api-key`, `from`, `base-url`) e `app.twilio.*` (`account-sid`, `auth-token`, `from`, `base-url`). Credenciais reais vão em `application-local.yaml` (gitignored).
+- **Sem provedor configurado, os eventos são no-op silencioso** (não gravam `Notificacao`); só `POST /notificacoes/enviar` reclama (503). Escolha deliberada para não poluir o log com falhas em ambiente sem credencial.
+- **Não testado contra Resend/Twilio reais** — falta credencial. Passam: `mvn compile`, `contextLoads` (H2, valida todas as `@Query` e o wiring) e 3 testes unitários novos (`AvisoSegmentacaoTest`, `NotificacaoCanaisTest`, `WhatsappSenderE164Test`).
+- Notificações **participam da transação do evento** que as originou (sem `@Async`/`REQUIRES_NEW`); um envio lento segura o request, igual às chamadas ao Mercado Pago. Se o evento fizer rollback depois do disparo, os registros de `Notificacao` também são revertidos.
+- `normalizarE164` do WhatsApp é ingênua (assume Brasil / `+55` quando não há prefixo internacional).
+- `POST /avisos/:id/marcar-lido` responde **204** (não devolve o aviso).
+- Sem preferências por evento (só por canal) e sem digest/agrupamento — cada morador do segmento recebe uma notificação por comunicado.
 
 ## Fase 4 — Extras (não iniciada)
 
@@ -84,7 +126,7 @@ Todos os endpoints foram testados manualmente (via curl) contra uma instância r
 - **Banco**: Postgres gerenciado pelo Supabase (não é um banco local/efêmero — é a instância real do projeto).
 - **`schema.sql`** (`src/main/resources/schema.sql`, roda em todo boot via `spring.sql.init.mode: always`): script idempotente que alinha tabelas que já existiam no Supabase (de uma tentativa anterior, com colunas em camelCase) ao schema snake_case que as entidades JPA esperam. `ddl-auto=update` cuida de tabelas/colunas genuinamente novas.
 - **Credenciais**: `application.yaml` só tem defaults seguros (placeholders locais); as credenciais reais do Supabase ficam em `src/main/resources/application-local.yaml`, que está no `.gitignore` — rodar com `--spring-boot.run.profiles=local` (ou `SPRING_PROFILES_ACTIVE=local`) localmente.
-- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem tocar no Supabase nem no `schema.sql`); `ReservaServiceOverlapTest` cobre a lógica de sobreposição de horários (unit puro). O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
+- **Testes automatizados (início)**: `SrvCondominioProApplicationTests.contextLoads` sobe o contexto inteiro contra H2 em memória (`src/test/resources/application.yaml`, sem tocar no Supabase nem no `schema.sql`); unit puro: `ReservaServiceOverlapTest` (sobreposição de horários), `AvisoSegmentacaoTest` (visibilidade de aviso por papel), `NotificacaoCanaisTest` (resolução de canais preferência × config × dados), `WhatsappSenderE164Test` (normalização de telefone). O resto da verificação ainda é manual (curl) contra o Supabase real. Vale expandir para testes de integração (`@DataJpaTest`/`@WebMvcTest`) por módulo.
 - **Dado legado preservado**: existe um condomínio real "Residencial das Flores" (id=1) com 2 unidades, que já estava no banco antes deste trabalho começar — foi preservado ao corrigir o `schema.sql`, mas perdeu metadados de baixo valor (created_at/updated_at originais, preferências de notificação) durante uma correção de schema anterior a eu saber que era dado real.
 - **Dados de teste**: condomínio "Condomínio Teste Auth ATUALIZADO" (id=3) e usuários/moradores/áreas/unidades associados foram criados durante os testes manuais e continuam no banco — ainda não foram limpos.
 
@@ -102,9 +144,17 @@ com.mcardoso.srvcondominiopro/
 │   ├── moradores/         (MoradorUnidade, StatusMorador, MoradorUnidadeRepository, MoradorController, MoradorService, dto/)
 │   ├── areas/             (AreaComum, AreaComumRepository, AreaComumController, AreaComumService, dto/)
 │   ├── reservas/          (Reserva, StatusReserva, ReservaRepository, ReservaController, ReservaService, dto/)
-│   └── pagamentos/        (Pagamento, StatusPagamento, PagamentoRepository, PagamentoController, PagamentoService, dto/,
-│                           mercadopago/ = MercadoPagoClient, MercadoPagoProperties, MercadoPagoConfig,
-│                                          MercadoPagoWebhookValidator, MercadoPagoPayment, PagamentoPixRequest)
+│   ├── pagamentos/        (Pagamento, StatusPagamento, PagamentoRepository, PagamentoController, PagamentoService, dto/,
+│   │                       mercadopago/ = MercadoPagoClient, MercadoPagoProperties, MercadoPagoConfig,
+│   │                                      MercadoPagoWebhookValidator, MercadoPagoPayment, PagamentoPixRequest)
+│   ├── avisos/            (Aviso, AvisoLeitura, AvisoRepository, AvisoLeituraRepository,
+│   │                       AvisoController, AvisoService, dto/)
+│   ├── faqs/              (Faq, CategoriaFaq, FaqRepository, FaqController, FaqService, dto/)
+│   └── notificacoes/      (Notificacao, PreferenciaNotificacao, TipoNotificacao, StatusNotificacao,
+│                           NotificacaoRepository, PreferenciaNotificacaoRepository,
+│                           NotificacaoController, NotificacaoService, dto/,
+│                           canais/ = EmailSender (Resend), WhatsappSender (Twilio),
+│                                     ResendProperties, TwilioProperties, NotificacaoCanaisConfig)
 └── shared/
     ├── exceptions/        (AppException, NotFoundException, ConflictException, ForbiddenException, GlobalExceptionHandler)
     └── security/          (JwtService, JwtFilter)

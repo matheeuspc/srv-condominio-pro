@@ -28,3 +28,14 @@ app:
     base-url: ${MERCADO_PAGO_BASE_URL:https://api.mercadopago.com}
     notification-url: ${MERCADO_PAGO_NOTIFICATION_URL:}
     pix-expiration-minutes: ${MERCADO_PAGO_PIX_EXPIRATION_MINUTES:30}
+  # Canais de notificação (Fase 3). Sem credenciais, o canal fica desligado: eventos viram
+  # no-op silencioso e POST /notificacoes/enviar responde 503.
+  resend:
+    api-key: ${RESEND_API_KEY:}
+    from: ${RESEND_FROM:CondominioPro <onboarding@resend.dev>}
+    base-url: ${RESEND_BASE_URL:https://api.resend.com}
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID:}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    from: ${TWILIO_WHATSAPP_FROM:}
+    base-url: ${TWILIO_BASE_URL:https://api.twilio.com}

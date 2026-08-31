@@ -4,6 +4,7 @@ import com.mcardoso.srvcondominiopro.modules.areas.AreaComum;
 import com.mcardoso.srvcondominiopro.modules.areas.AreaComumRepository;
 import com.mcardoso.srvcondominiopro.modules.moradores.MoradorUnidadeRepository;
 import com.mcardoso.srvcondominiopro.modules.moradores.StatusMorador;
+import com.mcardoso.srvcondominiopro.modules.notificacoes.NotificacaoService;
 import com.mcardoso.srvcondominiopro.modules.reservas.dto.CreateReservaRequest;
 import com.mcardoso.srvcondominiopro.modules.reservas.dto.RejeitarReservaRequest;
 import com.mcardoso.srvcondominiopro.modules.reservas.dto.ReservaResponse;
@@ -37,17 +38,20 @@ public class ReservaService {
     private final AreaComumRepository areaComumRepository;
     private final UnidadeRepository unidadeRepository;
     private final MoradorUnidadeRepository moradorUnidadeRepository;
+    private final NotificacaoService notificacaoService;
 
     public ReservaService(
             ReservaRepository reservaRepository,
             AreaComumRepository areaComumRepository,
             UnidadeRepository unidadeRepository,
-            MoradorUnidadeRepository moradorUnidadeRepository
+            MoradorUnidadeRepository moradorUnidadeRepository,
+            NotificacaoService notificacaoService
     ) {
         this.reservaRepository = reservaRepository;
         this.areaComumRepository = areaComumRepository;
         this.unidadeRepository = unidadeRepository;
         this.moradorUnidadeRepository = moradorUnidadeRepository;
+        this.notificacaoService = notificacaoService;
     }
 
     @Transactional
@@ -121,6 +125,7 @@ public class ReservaService {
         }
 
         reserva.setStatus(StatusReserva.CANCELADA);
+        notificarMorador(reserva, "cancelada");
         return ReservaResponse.from(reserva);
     }
 
@@ -134,6 +139,7 @@ public class ReservaService {
         }
 
         reserva.setStatus(StatusReserva.CONFIRMADA);
+        notificarMorador(reserva, "confirmada");
         return ReservaResponse.from(reserva);
     }
 
@@ -150,10 +156,20 @@ public class ReservaService {
         if (request != null && request.motivo() != null && !request.motivo().isBlank()) {
             reserva.setObservacao(request.motivo());
         }
+        notificarMorador(reserva, "rejeitada");
         return ReservaResponse.from(reserva);
     }
 
     // --- regras de negócio ---
+
+    private void notificarMorador(Reserva reserva, String situacao) {
+        notificacaoService.notificar(
+                reserva.getUsuario(),
+                "Reserva " + situacao,
+                "Sua reserva da área %s em %s (%s–%s) foi %s.".formatted(
+                        reserva.getArea().getNome(), reserva.getData(),
+                        reserva.getHoraInicio(), reserva.getHoraFim(), situacao));
+    }
 
     private Contexto validarCriacao(CreateReservaRequest request, Usuario moradorLogado) {
         AreaComum area = areaComumRepository.findById(request.areaId())
