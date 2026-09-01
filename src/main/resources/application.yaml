@@ -33,6 +33,21 @@ app:
   jwt:
     secret: ${JWT_SECRET:change-this-secret-change-this-secret-change-this-secret}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    # Origens do front. Em produção: CORS_ALLOWED_ORIGINS="https://app.seudominio.com,https://*.vercel.app".
+    # Aceita padrões (ex.: https://*.lovableproject.com para os previews do Lovable).
+    allowed-origin-patterns: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:8080}
+
+springdoc:
+  # Swagger UI em /swagger-ui.html, contrato OpenAPI em /v3/api-docs.
+  # Em produção dá para desligar com SPRINGDOC_API_DOCS_ENABLED=false.
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    display-request-duration: true
   mercadopago:
     # Credenciais reais ficam em application-local.yaml (gitignored). Sem access-token a
     # integração fica desligada: criar-cobranca responde 503 e o webhook só é logado.

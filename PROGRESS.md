@@ -1,9 +1,10 @@
 # Progresso do Backend — CondomínioPro
 
-Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-08-31.
+Acompanha a "Ordem de Implementação" definida em `CONTEXT.md` (seção 9). Atualizado em 2026-09-01.
 
-> Fases 1–4 implementadas. Pós-roadmap: bloco de Auth do CONTEXT §6.1 completo e schema
-> migrado para **Flyway** — ver "Pós-roadmap" abaixo.
+> Fases 1–4 implementadas. Pós-roadmap: Auth §6.1 completo, schema migrado para **Flyway**,
+> **CORS + OpenAPI/Swagger** prontos (front destravado). Pendências e ordem sugerida na
+> seção "Pós-roadmap" abaixo — destaque para repensar o fluxo do dinheiro no Mercado Pago.
 
 ## Fase 1 — Base ✅ concluída
 
@@ -170,6 +171,37 @@ Schema saiu de `ddl-auto=update` + `schema.sql` para **Flyway** (`flyway-core` +
 
 **Não verificado contra Postgres real** — `mvn test` (25, H2, Flyway off) passa, mas o primeiro boot contra o Supabase precisa ser acompanhado: é quando o Flyway cria o `flyway_schema_history`, carimba o baseline e roda a V2. Se a V2 falhar (ex.: coluna já criada por um boot anterior com `ddl-auto`), remover o `ADD COLUMN` correspondente da V2 e usar `flyway repair` / marcar como aplicada.
 
+### CORS + OpenAPI (destravar o front)
+
+- **CORS**: `SecurityConfig` agora tem `.cors(...)` + bean `CorsConfigurationSource` para `/api/**`. Origens via `app.cors.allowed-origin-patterns` (`CORS_ALLOWED_ORIGINS`), default `localhost:5173/3000/8080`. Usa `setAllowedOriginPatterns` (aceita `https://*.vercel.app`, `https://*.lovableproject.com`), `allowCredentials=true`, métodos `GET/POST/PUT/PATCH/DELETE/OPTIONS`, headers `*`, `OPTIONS /**` liberado. Config em `config/CorsProperties.java`.
+- **OpenAPI/Swagger**: `springdoc-openapi-starter-webmvc-ui` 2.8.13 (compatível com Spring Boot 4.1.1 — `contextLoads` confirma). Swagger UI em `/swagger-ui.html`, contrato em `/v3/api-docs` (ambos `permitAll`). `config/OpenApiConfig.java` define título/descrição e o esquema `bearerAuth` (JWT) global — o botão **Authorize** aceita o `token` do `/auth/login`. Desligável em prod com `SPRINGDOC_API_DOCS_ENABLED=false`.
+- **Não verificado em runtime** (sem DB local acessível): render do Swagger UI e headers reais do preflight. `contextLoads` valida o wiring (beans CORS + OpenAPI + autoconfig do springdoc + filter chain).
+
+### Integração com o front — o que falta
+
+Pré-requisitos de backend **prontos**: CORS, contrato OpenAPI, `/auth/refresh-token`, shape de erro consistente (`GlobalExceptionHandler`: `{timestamp,status,error,message,[errors]}`).
+
+Falta (no **outro** projeto, o do front — precisa ser aberto numa sessão própria):
+- cliente HTTP com base `/api/v1` + injeção do `Authorization: Bearer`
+- fluxo de auth: guardar o JWT, refresh antes de expirar, logout, redirect no 401
+- tipos TS a partir do `/v3/api-docs` (ex.: `openapi-typescript`)
+- telas por perfil (SINDICO x MORADOR) seguindo os endpoints do `CONTEXT.md §6`
+
+### Mercado Pago — repensar o fluxo do dinheiro (decisão de produto pendente)
+
+Como está: **um `access-token` único e global (do operador do SaaS)** → toda taxa de reserva de todo condomínio cai na conta MP do operador, que teria de repassar cada síndico manualmente. Isso gera custódia de dinheiro de terceiro (implicação fiscal/regulatória), reconciliação manual e atrito com o síndico.
+
+Alvo: o dinheiro vai **direto para o condomínio**; o SaaS fica só com a sua taxa.
+- **Opção A (MVP)** — credenciais MP **por condomínio** (colunas `mp_access_token` / `mp_webhook_secret` em `condominios`); a taxa de reserva vai 100% para o condomínio; receita do SaaS = plano mensal, cobrado à parte. `MercadoPagoClient` passa a receber o token por parâmetro; `isConfigured()` vira por-condomínio; no webhook, resolver o `Pagamento` por `mp_payment_id` **antes** de validar a assinatura (com o secret do condomínio). ~meio dia; o fluxo `criarCobranca` → webhook → confirma reserva permanece.
+- **Opção B (depois)** — marketplace/split (MP OAuth + `application_fee`) para ligar o add-on de 2,5% do `CONTEXT §2` sem custodiar o valor. Alternativa: trocar para Asaas/Pagar.me (split nativo).
+
+### Próximos passos (ordem sugerida)
+
+1. **Mercado Pago → Opção A** (tirar o operador do fluxo do dinheiro) — decisão de produto + refactor no backend.
+2. **Ir para o front** (destravado): montar cliente HTTP, auth e telas no outro projeto.
+3. **Validar contra o Supabase real**: 1º boot do Flyway + fluxos das Fases 2–4 (curl) — maior risco em aberto.
+4. **Fechar**: `@Async` nas notificações, CI (GitHub Actions rodando `mvn test`), limpar dados de teste no banco, PR `feat/implementacao` → `main`, deploy (Railway/Render).
+
 ---
 
 ## Notas de infraestrutura
@@ -186,7 +218,9 @@ Schema saiu de `ddl-auto=update` + `schema.sql` para **Flyway** (`flyway-core` +
 ```
 com.mcardoso.srvcondominiopro/
 ├── config/
-│   └── SecurityConfig.java
+│   ├── SecurityConfig.java      (JWT filter chain + CORS)
+│   ├── CorsProperties.java
+│   └── OpenApiConfig.java       (metadados Swagger + esquema bearerAuth)
 ├── modules/
 │   ├── auth/            (AuthController, AuthService, dto/ = register/login/me + forgot/reset/refresh)
 │   ├── condominios/      (Condominio, CondominioRepository, CondominioController, CondominioService, dto/)
