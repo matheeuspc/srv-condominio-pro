@@ -56,9 +56,14 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!--
+          Spring Boot 4.x moveu a auto-configuração do Flyway para um módulo
+          dedicado; só `flyway-core` no classpath não dispara mais a migração.
+          O starter traz o autoconfig + flyway-core.
+        -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
